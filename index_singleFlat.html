@@ -17,8 +17,8 @@
 
     void main(void) {
         float lambert = max(dot(normalize(N), normalize(L)), 0.0);
-        // gl_FragColor = vColor * lambert;
-        gl_FragColor = vec4(1,0,0,1) * lambert;
+        gl_FragColor = vColor * lambert;
+        // gl_FragColor = vec4(1,0,0,1) * lambert;
     }
 </script>
 
@@ -124,6 +124,9 @@
 
         gl.useProgram(shaderProgram);
 
+        shaderProgram.vertexColorAttribute = gl.getAttribLocation(shaderProgram, "aVertexColor");
+        gl.enableVertexAttribArray(shaderProgram.vertexColorAttribute);
+
         shaderProgram.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, "aVertexPosition");
         gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
 
@@ -187,6 +190,8 @@
 
     function handleLoadedTeapot(teapotData) {
         // getTriangleNormalFromVertexPos(teapotData);
+        console.log(galvanizedTexture);
+        setTriangleNormalAndColor(teapotData);
 
         teapotVertexNormalBuffer = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, teapotVertexNormalBuffer);
@@ -212,6 +217,61 @@
         teapotVertexIndexBuffer.itemSize = 1;
         teapotVertexIndexBuffer.numItems = teapotData.indices.length;
         
+    }
+
+    function setTriangleNormalAndColor(teapotData) {
+        var timeBeenUsed = [];
+        var numIndices = teapotData.indices.length;
+        var newVertexIndex = teapotData.vertexPositions.length / 3;
+        var newNormals = [];
+        var newTexCor = [];
+
+        //update index(append),position(append),normal(replace and switch buffer),coordinates
+        for(var i = 0;i < numIndices;i += 3) {
+            var triangleNormal = [0.0,0.0,0.0];
+            var triangleTexCor = [0.0,0.0];
+            for(var j = i;j < (i + 3);j++) {
+                var vertexIndex = teapotData.indices[j];
+                var vertexPosIndex = vertexIndex * 3;
+                var vertexTexCorIndex = vertexIndex * 2;
+                if(timeBeenUsed[vertexIndex]) {
+                    teapotData.indices[j] = newVertexIndex;
+                    newVertexIndex += 1;
+                    teapotData.vertexPositions.push(teapotData.vertexPositions[vertexPosIndex]);
+                    teapotData.vertexPositions.push(teapotData.vertexPositions[vertexPosIndex+1]);
+                    teapotData.vertexPositions.push(teapotData.vertexPositions[vertexPosIndex+2]);
+                }
+
+                //we do normalize in fragment shader
+                triangleNormal[0] += teapotData.vertexNormals[vertexPosIndex];
+                triangleNormal[1] += teapotData.vertexNormals[vertexPosIndex+1];
+                triangleNormal[2] += teapotData.vertexNormals[vertexPosIndex+2];
+
+                triangleTexCor[0] += teapotData.vertexTextureCoords[vertexTexCorIndex];
+                triangleTexCor[1] += teapotData.vertexTextureCoords[vertexTexCorIndex+1];
+
+                timeBeenUsed[vertexIndex] = 1;
+            }
+            
+            triangleTexCor[0] /= 3.0;
+            triangleTexCor[1] /= 3.0;
+
+            for(var j = i;j < (i + 3);j++) {
+                var vertexIndex = teapotData.indices[j];
+                var vertexPosIndex = vertexIndex * 3;
+                var vertexTexCorIndex = vertexIndex * 2;
+                newNormals[vertexPosIndex] = triangleNormal[0];
+                newNormals[vertexPosIndex+1] = triangleNormal[1];
+                newNormals[vertexPosIndex+2] = triangleNormal[2];
+
+                newTexCor[vertexTexCorIndex] = triangleTexCor[0];
+                newTexCor[vertexTexCorIndex+1] = triangleTexCor[1];
+            }
+
+        }
+
+        teapotData.vertexNormals = newNormals;
+        teapotData.vertexTextureCoords = newTexCor;
     }
 
     var triangleVertices = [];
@@ -256,12 +316,15 @@
 
     }
 
+    var teapotData;
+
     function loadTeapot() {
         var request = new XMLHttpRequest();
         request.open("GET", "Teapot.json");
         request.onreadystatechange = function () {
             if (request.readyState == 4) {
-                handleLoadedTeapot(JSON.parse(request.responseText));
+                teapotData = JSON.parse(request.responseText);
+                handleLoadedTeapot(teapotData);
             }
         }
         request.send();
@@ -269,9 +332,6 @@
 
 
     var teapotAngle = 180;
-    // var trianglesVerticeBuffers = [],
-    //     trianglesNormalBuffers = [],
-    //     trianglesColorBuffers = [];
 
     function drawScene() {
         gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
@@ -292,10 +352,12 @@
         mat4.toInverseMat3(mvMatrix, normalMatrix);
         mat3.transpose(normalMatrix);
 
+        setMatrixUniforms();
+
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, galvanizedTexture);
-        
         gl.uniform1i(shaderProgram.samplerUniform, 0);
+
         gl.bindBuffer(gl.ARRAY_BUFFER, teapotVertexPositionBuffer);
         gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, teapotVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
 
@@ -304,27 +366,10 @@
 
         gl.bindBuffer(gl.ARRAY_BUFFER, teapotVertexNormalBuffer);
         gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute, teapotVertexNormalBuffer.
-            itemSize, gl.FLOAT, false, 0, 0);        
+            itemSize, gl.FLOAT, false, 0, 0);
 
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, teapotVertexIndexBuffer);
-        setMatrixUniforms();
         gl.drawElements(gl.TRIANGLES, teapotVertexIndexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
-
-        // for(var i=0; i < vertexIndexBuffers.length; ++i) {
-        //     gl.bindBuffer(gl.ARRAY_BUFFER, trianglesVerticeBuffers[i]);
-        //     gl.vertexAttribPointer(vertexPositionAttribute, 3, gl.FLOAT, false, 0, 0);
-        //     gl.bindBuffer(gl.ARRAY_BUFFER, trianglesColorBuffers[i]);
-        //     gl.vertexAttribPointer(vertexColorAttribute, 4, gl.FLOAT, false, 0, 0);
-        //     gl.bindBuffer(gl.ARRAY_BUFFER, trianglesNormalBuffers[i]);
-        //     gl.vertexAttribPointer(vertexNormalAttribute, 3, gl.FLOAT, false, 0, 0);
-            
-        //     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, vertexIndexBuffers[i]);
-        //     if(i==3){
-        //         gl.drawElements(gl.TRIANGLES, vertexIndexBuffers[i].numItems, gl.UNSIGNED_SHORT, 0);
-        //     }else{
-        //         gl.drawArrays(gl.TRIANGLES, 0, trianglesVerticeBuffers[i].numItems);
-        //     }
-        // }
 
     }
 
