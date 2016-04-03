@@ -7,43 +7,7 @@
 <script type="text/javascript" src="glMatrix-0.9.5.min.js"></script>
 <script type="text/javascript" src="webgl-utils.js"></script>
 <script type="text/javascript" src="math.min.js"></script>
-
-<script id="fragmentShader" type="fragment">
-    precision mediump float;
-    varying vec4 vColor;
-
-    void main(void) {
-        gl_FragColor = vColor;
-    }
-</script>
-
-<script id="vertexShader" type="vertex">
-    precision mediump float;
-    attribute vec3 aVertexPosition;
-    attribute vec2 aTextureCoord;
-    attribute vec3 aVertexNormal;
-
-    uniform mat4 uMVMatrix;
-    uniform mat4 uPMatrix;
-    uniform mat3 uNormalMatrix;
-
-	varying vec4 vColor;
-    uniform sampler2D uSampler;
-
-    void main(void) {
-        vec3 pointLightPosition = vec3(10.0,10.0,0.0);
-        vec3 pointLightDirection = normalize(vec3(pointLightPosition.xyz - aVertexPosition.xyz));
-        vec3 ambientColor = vec3(0.1, 0.1, 0.1);
-
-        vec3 L = vec3(uPMatrix * uMVMatrix * vec4(pointLightDirection, 1.0));
-        vec3 N = uNormalMatrix * aVertexNormal;
-        float lambert = max(dot(normalize(N), normalize(L)), 0.0) * 2.0;
-
-        gl_Position = uPMatrix * uMVMatrix * vec4(aVertexPosition, 1.0);
-        vec4 fragmentColor = texture2D(uSampler, vec2(aTextureCoord.s, aTextureCoord.t));
-		vColor = vec4(fragmentColor.rgb, fragmentColor.a) * lambert;
-    }
-</script>
+<script type="text/javascript" src="jquery-1.12.2.min.js"></script>
 
 
 <script type="text/javascript">
@@ -63,19 +27,33 @@
     }
 
 
-    function getShader(gl, id) {
-        var shaderScript = document.getElementById(id);
-        if (!shaderScript) {
-            return null;
-        }
+    function getShader(gl, id, shaderName) {
+        var shaderScript = {};
 
-        var str = "";
-        var k = shaderScript.firstChild;
-        while (k) {
-            if (k.nodeType == 3) {
-                str += k.textContent;
-            }
-            k = k.nextSibling;
+        if(id == "fragmentShader") {
+            $.ajax({
+                async: false,
+                url: shaderName + '.fs',
+                success: function (data) {
+                    shaderScript.str = data.firstChild.textContent;
+                    shaderScript.type = "fragment";
+                },
+                dataType: 'xml'
+            });
+        }
+        else if(id == "vertexShader") {
+            $.ajax({
+                async: false,
+                url: shaderName + '.vs',
+                success: function (data) {
+                    shaderScript.str = data.firstChild.textContent;
+                    shaderScript.type = "vertex";
+                },
+                dataType: 'xml'
+            });
+        }
+        else {
+            return null;
         }
 
         var shader;
@@ -87,7 +65,7 @@
             return null;
         }
 
-        gl.shaderSource(shader, str);
+        gl.shaderSource(shader, shaderScript.str);
         gl.compileShader(shader);
 
         if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
@@ -102,8 +80,8 @@
     var shaderProgram;
 
     function initShaders() {
-        var fragmentShader = getShader(gl, "fragmentShader");
-        var vertexShader = getShader(gl, "vertexShader");
+        var fragmentShader = getShader(gl, "fragmentShader", 'flatShader');
+        var vertexShader = getShader(gl, "vertexShader", 'flatShader');
 
         shaderProgram = gl.createProgram();
         gl.attachShader(shaderProgram, vertexShader);
@@ -132,6 +110,8 @@
         shaderProgram.mvMatrixUniform = gl.getUniformLocation(shaderProgram, "uMVMatrix");
         shaderProgram.samplerUniform = gl.getUniformLocation(shaderProgram, "uSampler");
         shaderProgram.normalMatrixUniform = gl.getUniformLocation(shaderProgram, "uNormalMatrix");
+        shaderProgram.pointLightPositionUniform = gl.getUniformLocation(shaderProgram, "pointLightPosition");
+        shaderProgram.ambientColorUniform = gl.getUniformLocation(shaderProgram, "ambientColor");
 
     }
 
@@ -162,12 +142,15 @@
     var mvMatrix = mat4.create();
     var pMatrix = mat4.create();
     var normalMatrix = mat3.create();
-
+    var pointLightPos = [20.0,-20.0,0];
+    var ambientColorRGB = [0.1,0.1,0.1];
 
     function setMatrixUniforms() {
         gl.uniformMatrix4fv(shaderProgram.pMatrixUniform, false, pMatrix);
         gl.uniformMatrix4fv(shaderProgram.mvMatrixUniform, false, mvMatrix);
         gl.uniformMatrix3fv(shaderProgram.normalMatrixUniform, false, normalMatrix);
+        gl.uniform3fv(shaderProgram.pointLightPositionUniform, pointLightPos);
+        gl.uniform3fv(shaderProgram.ambientColorUniform, ambientColorRGB);
     }
 
     function degToRad(degrees) {
@@ -211,10 +194,10 @@
         
     }
 
-    function setTriangleNormalAndColor(teapotData) {
+    function setTriangleNormalAndColor(modelData) {
         var timeBeenUsed = [];
-        var numIndices = teapotData.indices.length;
-        var newVertexIndex = teapotData.vertexPositions.length / 3;
+        var numIndices = modelData.indices.length;
+        var newVertexIndex = modelData.vertexPositions.length / 3;
         var newNormals = [];
         var newTexCor = [];
 
@@ -223,33 +206,37 @@
             var triangleNormal = [0.0,0.0,0.0];
             var triangleTexCor = [0.0,0.0];
             for(var j = i;j < (i + 3);j++) {
-                var vertexIndex = teapotData.indices[j];
+                var vertexIndex = modelData.indices[j];
                 var vertexPosIndex = vertexIndex * 3;
                 var vertexTexCorIndex = vertexIndex * 2;
                 if(timeBeenUsed[vertexIndex]) {
-                    teapotData.indices[j] = newVertexIndex;
+                    modelData.indices[j] = newVertexIndex;
                     newVertexIndex += 1;
-                    teapotData.vertexPositions.push(teapotData.vertexPositions[vertexPosIndex]);
-                    teapotData.vertexPositions.push(teapotData.vertexPositions[vertexPosIndex+1]);
-                    teapotData.vertexPositions.push(teapotData.vertexPositions[vertexPosIndex+2]);
+                    modelData.vertexPositions.push(modelData.vertexPositions[vertexPosIndex]);
+                    modelData.vertexPositions.push(modelData.vertexPositions[vertexPosIndex+1]);
+                    modelData.vertexPositions.push(modelData.vertexPositions[vertexPosIndex+2]);
                 }
 
                 //we do normalize in fragment shader
-                triangleNormal[0] += teapotData.vertexNormals[vertexPosIndex];
-                triangleNormal[1] += teapotData.vertexNormals[vertexPosIndex+1];
-                triangleNormal[2] += teapotData.vertexNormals[vertexPosIndex+2];
+                triangleNormal[0] += modelData.vertexNormals[vertexPosIndex];
+                triangleNormal[1] += modelData.vertexNormals[vertexPosIndex+1];
+                triangleNormal[2] += modelData.vertexNormals[vertexPosIndex+2];
 
-                triangleTexCor[0] += teapotData.vertexTextureCoords[vertexTexCorIndex];
-                triangleTexCor[1] += teapotData.vertexTextureCoords[vertexTexCorIndex+1];
+                triangleTexCor[0] += modelData.vertexTextureCoords[vertexTexCorIndex];
+                triangleTexCor[1] += modelData.vertexTextureCoords[vertexTexCorIndex+1];
 
                 timeBeenUsed[vertexIndex] = 1;
             }
             
+            triangleNormal[0] /= 3.0;
+            triangleNormal[1] /= 3.0;
+            triangleNormal[2] /= 3.0;
+
             triangleTexCor[0] /= 3.0;
             triangleTexCor[1] /= 3.0;
 
             for(var j = i;j < (i + 3);j++) {
-                var vertexIndex = teapotData.indices[j];
+                var vertexIndex = modelData.indices[j];
                 var vertexPosIndex = vertexIndex * 3;
                 var vertexTexCorIndex = vertexIndex * 2;
                 newNormals[vertexPosIndex] = triangleNormal[0];
@@ -262,50 +249,8 @@
 
         }
 
-        teapotData.vertexNormals = newNormals;
-        teapotData.vertexTextureCoords = newTexCor;
-    }
-
-    var triangleVertices = [];
-
-    function getTriangleNormalFromVertexPos(teapotData) {
-        var timeBeenUsed = [];
-        var numIndices = teapotData.indices.length;
-        for(var i = 0;i < numIndices;i += 3) {
-            var verticesInTriangle = []; 
-            for(var j = i;j < (i + 3);j++) {
-                var vertexIndex = teapotData.indices[j];
-                var vertexPosIndex = vertexIndex * 3;
-                var vertexPos = [teapotData.vertexPositions[vertexPosIndex],teapotData.vertexPositions[vertexPosIndex+1],teapotData.vertexPositions[vertexPosIndex+2]];
-                verticesInTriangle.push(vertexPos);
-            }
-            var triangleIndices = [0,1,0,2];
-            var vec1 = [verticesInTriangle[triangleIndices[0]][0] - verticesInTriangle[triangleIndices[1]][0],
-            verticesInTriangle[triangleIndices[0]][1] - verticesInTriangle[triangleIndices[1]][1],
-            verticesInTriangle[triangleIndices[0]][2] - verticesInTriangle[triangleIndices[1]][2]];
-            var vec2 = [verticesInTriangle[triangleIndices[2]][0] - verticesInTriangle[triangleIndices[3]][0],
-            verticesInTriangle[triangleIndices[2]][1] - verticesInTriangle[triangleIndices[3]][1],
-            verticesInTriangle[triangleIndices[2]][2] - verticesInTriangle[triangleIndices[3]][2]];
-            var planeNormal = math.cross(vec1,vec2);
-            for(var j = i;j < (i + 3);j++) {
-                var vertexIndex = teapotData.indices[j];
-                var vertexPosIndex = vertexIndex * 3;
-                if(!timeBeenUsed[vertexIndex]) {
-                    timeBeenUsed[vertexIndex] = 1;
-                    teapotData.vertexNormals[vertexPosIndex] = planeNormal[0];
-                    teapotData.vertexNormals[vertexPosIndex + 1] = planeNormal[1];
-                    teapotData.vertexNormals[vertexPosIndex + 2] = planeNormal[2];
-                }
-                else {
-                    teapotData.vertexNormals[vertexPosIndex] = (teapotData.vertexNormals[vertexPosIndex] * timeBeenUsed[vertexIndex] + planeNormal[0])/(timeBeenUsed[vertexIndex] + 1);
-                    teapotData.vertexNormals[vertexPosIndex + 1] = (teapotData.vertexNormals[vertexPosIndex + 1] * timeBeenUsed[vertexIndex] + planeNormal[1])/(timeBeenUsed[vertexIndex] + 1);
-                    teapotData.vertexNormals[vertexPosIndex + 2] = (teapotData.vertexNormals[vertexPosIndex + 2] * timeBeenUsed[vertexIndex] + planeNormal[2])/(timeBeenUsed[vertexIndex] + 1);
-                    timeBeenUsed[vertexIndex] = (timeBeenUsed[vertexIndex] + 1);
-                }
-
-            }
-        }
-
+        modelData.vertexNormals = newNormals;
+        modelData.vertexTextureCoords = newTexCor;
     }
 
     var teapotData;
@@ -333,12 +278,13 @@
             return;
         }
 
-        mat4.perspective(45, gl.viewportWidth / gl.viewportHeight, 0.1, 100.0, pMatrix);
+        mat4.perspective(45, gl.viewportWidth / gl.viewportHeight, 0.1, 300.0, pMatrix);
 
         mat4.identity(mvMatrix);
+        mat4.translate(mvMatrix, [0,-5,-100]); 
+        mat4.rotate(mvMatrix, degToRad(30), [1, 0, 0]);
 
-        mat4.translate(mvMatrix, [0, 0, -40]);
-
+        mat4.translate(mvMatrix, [0, -20, 0]);
         mat4.rotate(mvMatrix, degToRad(teapotAngle), [0, 1, 0]);
 
         mat4.toInverseMat3(mvMatrix, normalMatrix);
