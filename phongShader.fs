@@ -4,11 +4,11 @@
     uniform vec3 pointLightPosition;
     uniform vec3 ambientColor;
     uniform mat3 uNormalMatrix;
-    uniform mat4 uMVMatrix;
+    uniform mat4 uMMatrix;
+    uniform mat4 uVMatrix;
     uniform mat4 uPMatrix;
 
     varying vec4 vColor;
-    // varying vec3 L;
     varying vec3 N;
     varying vec3 vPosition;
 
@@ -16,11 +16,11 @@
     void main(void) {
 
         float AmbientIntensity = 0.3;
-        mat4 mvp = uPMatrix * uMVMatrix;
-
-        vec3 pointLightDirection = vec3(pointLightPosition.xyz - vPosition.xyz);        
-        vec3 L = vec3(mvp * vec4(pointLightDirection, 1.0));
+        mat4 mvMat = uVMatrix * uMMatrix;
+        mat4 mvp = uPMatrix * mvMat;
+        
         vec3 V = -vec3(mvp * vec4(vPosition,1.0));
+        vec3 L = (uVMatrix * vec4(pointLightPosition, 1.0)).xyz - ( mvMat * vec4(vPosition,1.0)).xyz;
         vec3 l = normalize(L);
         vec3 n = normalize(uNormalMatrix * N);
         vec3 v = normalize(V);

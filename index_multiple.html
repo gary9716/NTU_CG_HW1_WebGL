@@ -79,6 +79,8 @@
     var shaderProgram;
     var shaderNames = ['flatShader','gouraudShader','phongShader'];
     var shaderPrograms = [];
+    var attrVars = ["aVertexPosition", "aTextureCoord", "aVertexNormal"];
+    var unifVars = ["uMVPMatrix", "uPMatrix", "uMMatrix", "uVMatrix", "uSampler", "uNormalMatrix", "pointLightPosition", "ambientColor"];
 
     function initShaders() {
         for (var i = 0;i < 3;i++) {
@@ -94,22 +96,15 @@
                 alert("Could not initialise shaders");
             }
 
-            shaderProgram.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, "aVertexPosition");
-            gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
+            for(var j = 0;j < attrVars.length;j++) {
+                shaderProgram[attrVars[j]] = gl.getAttribLocation(shaderProgram, attrVars[j]);
+                gl.enableVertexAttribArray(shaderProgram[attrVars[j]]);
+            }
 
-            shaderProgram.textureCoordAttribute = gl.getAttribLocation(shaderProgram, "aTextureCoord");
-            gl.enableVertexAttribArray(shaderProgram.textureCoordAttribute);
+            for(var j = 0;j < unifVars.length;j++) {
+                shaderProgram[unifVars[j]] = gl.getUniformLocation(shaderProgram, unifVars[j]);
+            }
 
-            shaderProgram.vertexNormalAttribute = gl.getAttribLocation(shaderProgram, "aVertexNormal");
-            gl.enableVertexAttribArray(shaderProgram.vertexNormalAttribute);
-
-            shaderProgram.pMatrixUniform = gl.getUniformLocation(shaderProgram, "uPMatrix");
-            shaderProgram.mvMatrixUniform = gl.getUniformLocation(shaderProgram, "uMVMatrix");
-            shaderProgram.samplerUniform = gl.getUniformLocation(shaderProgram, "uSampler");
-            shaderProgram.normalMatrixUniform = gl.getUniformLocation(shaderProgram, "uNormalMatrix");
-            shaderProgram.pointLightPositionUniform = gl.getUniformLocation(shaderProgram, "pointLightPosition");
-            shaderProgram.ambientColorUniform = gl.getUniformLocation(shaderProgram, "ambientColor");
-            
             shaderPrograms.push(shaderProgram);
         }
     }
@@ -144,28 +139,98 @@
         gunTexture.image.src = "Handgun/Handgun_Obj/textures/handgun_C.jpg";
     }
 
+    function getViewMatrix(eye, target, up) {
+        return mat4.lookAt(eye, target, up);
+    }
+
+    function getModelMatrix(size, center, translateVec, rotateAngle, rotateAxis) {
+        var modelMat = mat4.identity(mat4.create());
+        mat4.translate(modelMat, translateVec);
+        mat4.scale(modelMat, [size,size,size]);
+        mat4.rotate(modelMat, degToRad(rotateAngle), rotateAxis);
+        
+        return mat4.translate(modelMat,[-center[0],-center[1],-center[2]]);
+    }
+
+    function getNormalMatrix(modelViewMat) {
+        var normalMat = mat3.create();
+        mat4.toInverseMat3(modelViewMat, normalMat);
+        return mat3.transpose(normalMat);
+    }
+
+    var mvpMatrix = mat4.create();
     var mvMatrix = mat4.create();
+    var normalMatrix;
+    var viewMatrix;
+    var modelMatrix;
     var pMatrix = mat4.create();
-    var normalMatrix = mat3.create();
-    var pointLightPos = [10.0,10.0,0];
+    var pointLightPos = [0.0,30.0,0.0];
     var ambientColorRGB = [0.1,0.1,0.1];
 
     function setMatrixUniforms() {
-        gl.uniformMatrix4fv(shaderProgram.pMatrixUniform, false, pMatrix);
-        gl.uniformMatrix4fv(shaderProgram.mvMatrixUniform, false, mvMatrix);
-        gl.uniformMatrix3fv(shaderProgram.normalMatrixUniform, false, normalMatrix);
-        gl.uniform3fv(shaderProgram.pointLightPositionUniform, pointLightPos);
-        gl.uniform3fv(shaderProgram.ambientColorUniform, ambientColorRGB);
-    }
-
-    function degToRad(degrees) {
-        return degrees * Math.PI / 180;
+        gl.uniformMatrix4fv(shaderProgram["uMMatrix"], false, modelMatrix);
+        gl.uniformMatrix4fv(shaderProgram["uVMatrix"], false, viewMatrix);
+        gl.uniformMatrix4fv(shaderProgram["uPMatrix"], false, pMatrix);
+        gl.uniformMatrix3fv(shaderProgram["uNormalMatrix"], false, normalMatrix);
+        gl.uniform3fv(shaderProgram["pointLightPosition"], pointLightPos);
+        gl.uniform3fv(shaderProgram["ambientColor"], ambientColorRGB);
     }
 
     var normalTeapotMeshBuffers = {};
-
     var flatTeapotMeshBuffers = {};
     var flatTeapotData = {};
+
+    var teapotAngle = 0;
+
+    function bindBufferData(meshBuffers) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, meshBuffers.vertexPositionBuffer);
+        gl.vertexAttribPointer(shaderProgram["aVertexPosition"], meshBuffers.vertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+        gl.bindBuffer(gl.ARRAY_BUFFER, meshBuffers.vertexTextureCoordBuffer);
+        gl.vertexAttribPointer(shaderProgram["aTextureCoord"], meshBuffers.vertexTextureCoordBuffer.itemSize, gl.FLOAT, false, 0, 0);
+        gl.bindBuffer(gl.ARRAY_BUFFER, meshBuffers.vertexNormalBuffer);
+        gl.vertexAttribPointer(shaderProgram["aVertexNormal"], meshBuffers.vertexNormalBuffer.itemSize, gl.FLOAT, false, 0, 0);        
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, meshBuffers.vertexIndexBuffer);
+        gl.drawElements(gl.TRIANGLES, meshBuffers.vertexIndexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
+
+    }
+
+    function drawScene() {
+        gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        if($.isEmptyObject(normalTeapotMeshBuffers) || $.isEmptyObject(flatTeapotMeshBuffers)) {
+            return;
+        }
+        mat4.perspective(45, gl.viewportWidth / gl.viewportHeight, 0.1, 1000.0, pMatrix);
+        viewMatrix = getViewMatrix([0.0,50.0,-100.0], [0.0,0.0,0.0], [0.0,1.0,0.0]);
+        
+        modelMatrix = getModelMatrix(1.0, [0.0,0.0,0.0], [0.0,0.0,0.0], teapotAngle, [0.0,1.0,0.0]);
+        
+        mvMatrix = mat4.multiply(viewMatrix,modelMatrix);
+        normalMatrix = getNormalMatrix(mvMatrix);
+        
+        //for flat shading
+        shaderProgram = shaderPrograms[1];
+        gl.useProgram(shaderProgram);
+        setMatrixUniforms();
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, galvanizedTexture);
+        gl.uniform1i(shaderProgram.samplerUniform, 0);
+        bindBufferData(normalTeapotMeshBuffers);
+
+        // modelMatrix = getModelMatrix(1.0, [0.0,0.0,0.0], [20.0,0.0,0.0], teapotAngle, [0.0,1.0,0.0]);
+
+        // mvMatrix = mat4.multiply(viewMatrix,modelMatrix);
+        // normalMatrix = getNormalMatrix(mvMatrix);
+        
+        // //for flat shading
+        // shaderProgram = shaderPrograms[1];
+        // gl.useProgram(shaderProgram);
+        // setMatrixUniforms();
+        // gl.activeTexture(gl.TEXTURE0);
+        // gl.bindTexture(gl.TEXTURE_2D, galvanizedTexture);
+        // gl.uniform1i(shaderProgram.samplerUniform, 0);
+        // bindBufferData(normalTeapotMeshBuffers);
+    }
 
     //we need to duplicate vertex normal and color in order to do flat shading
     function modifyModelForFlatShading(modelData) {
@@ -260,12 +325,11 @@
             $.extend(true, flatTeapotData, teapotData);
             modifyModelForFlatShading(flatTeapotData);
             initMeshBuffers(flatTeapotData, flatTeapotMeshBuffers);
+            console.log("done flat modification");
         }
 
         initMeshBuffers(teapotData, normalTeapotMeshBuffers);
     }
-
-    
 
     function loadTeapot() {
         var request = new XMLHttpRequest();
@@ -294,81 +358,9 @@
         request.send();
     }
 
-    var teapotAngle = 180;
-    
-    function tiltAndLookFrom(camPosition,camTiltAngle) {
-        mat4.identity(mvMatrix);
-        mat4.translate(mvMatrix, [-camPosition[0],-camPosition[1],-camPosition[2]]); 
-        mat4.rotate(mvMatrix, degToRad(-camTiltAngle), [1, 0, 0]);
+    function degToRad(degrees) {
+        return degrees * Math.PI / 180;
     }
-
-    function bindBufferData(meshBuffers) {
-        gl.bindBuffer(gl.ARRAY_BUFFER, meshBuffers.vertexPositionBuffer);
-        gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, meshBuffers.vertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
-        gl.bindBuffer(gl.ARRAY_BUFFER, meshBuffers.vertexTextureCoordBuffer);
-        gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, meshBuffers.vertexTextureCoordBuffer.itemSize, gl.FLOAT, false, 0, 0);
-        gl.bindBuffer(gl.ARRAY_BUFFER, meshBuffers.vertexNormalBuffer);
-        gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute, meshBuffers.vertexNormalBuffer.itemSize, gl.FLOAT, false, 0, 0);        
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, meshBuffers.vertexIndexBuffer);
-        gl.drawElements(gl.TRIANGLES, meshBuffers.vertexIndexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
-
-    }
-
-    function drawScene() {
-        gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-        if($.isEmptyObject(normalTeapotMeshBuffers) || $.isEmptyObject(flatTeapotMeshBuffers)) {
-            return;
-        }
-        mat4.perspective(45, gl.viewportWidth / gl.viewportHeight, 0.1, 1000.0, pMatrix);
-
-        tiltAndLookFrom([0,5,100], -30);
-        mat4.translate(mvMatrix, [-30,0,0]); 
-        mat4.rotate(mvMatrix, degToRad(teapotAngle), [0, 1, 0]);
-        mat4.toInverseMat3(mvMatrix, normalMatrix);
-        mat3.transpose(normalMatrix);
-
-        //for flat shading
-        shaderProgram = shaderPrograms[0];
-        gl.useProgram(shaderProgram);
-        setMatrixUniforms();
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, galvanizedTexture);
-        gl.uniform1i(shaderProgram.samplerUniform, 0);
-        bindBufferData(flatTeapotMeshBuffers);
-
-        tiltAndLookFrom([0,5,100], -30);
-        mat4.translate(mvMatrix, [0,0,-30]); 
-        mat4.rotate(mvMatrix, degToRad(teapotAngle), [0, 1, 0]);
-        mat4.toInverseMat3(mvMatrix, normalMatrix);
-        mat3.transpose(normalMatrix);
-
-        //for gouraud shading
-        shaderProgram = shaderPrograms[1];
-        gl.useProgram(shaderProgram);
-        setMatrixUniforms();
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, galvanizedTexture);
-        gl.uniform1i(shaderProgram.samplerUniform, 0);
-        bindBufferData(normalTeapotMeshBuffers);
-        
-        tiltAndLookFrom([0,5,100], -30);
-        mat4.translate(mvMatrix, [30,0,0]); 
-        mat4.rotate(mvMatrix, degToRad(teapotAngle), [0, 1, 0]);
-        mat4.toInverseMat3(mvMatrix, normalMatrix);
-        mat3.transpose(normalMatrix);
-
-        //for phong shading
-        shaderProgram = shaderPrograms[2];
-        gl.useProgram(shaderProgram);
-        setMatrixUniforms();
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, galvanizedTexture);
-        gl.uniform1i(shaderProgram.samplerUniform, 0);
-        bindBufferData(normalTeapotMeshBuffers);
-
-    }
-
 
     var lastTime = 0;
     function animate() {
