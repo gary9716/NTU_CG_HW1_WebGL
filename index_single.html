@@ -1,0 +1,409 @@
+<html>
+
+<head>
+<title>ICG WebGL &mdash; HW1</title>
+<meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+
+<script type="text/javascript" src="glMatrix-0.9.5.min.js"></script>
+<script type="text/javascript" src="webgl-utils.js"></script>
+<script type="text/javascript" src="webgl-obj-loader.js"></script>
+<script type="text/javascript" src="jquery-1.12.2.min.js"></script>
+<script type="text/javascript">
+    var doFlatShading = true;
+    var gl;
+
+    function initGL(canvas) {
+        try {
+            gl = canvas.getContext("experimental-webgl");
+            gl.viewportWidth = canvas.width;
+            gl.viewportHeight = canvas.height;
+        } catch (e) {
+        }
+        if (!gl) {
+            alert("Could not initialise WebGL, sorry :-(");
+        }
+    }
+
+
+    function getShader(gl, id, shaderName) {
+        var shaderScript = {};
+
+        if(id == "fragmentShader") {
+            $.ajax({
+                async: false,
+                url: shaderName + '.fs',
+                success: function (data) {
+                    shaderScript.str = data.firstChild.textContent;
+                    shaderScript.type = "fragment";
+                },
+                dataType: 'xml'
+            });
+        }
+        else if(id == "vertexShader") {
+            $.ajax({
+                async: false,
+                url: shaderName + '.vs',
+                success: function (data) {
+                    shaderScript.str = data.firstChild.textContent;
+                    shaderScript.type = "vertex";
+                },
+                dataType: 'xml'
+            });
+        }
+        else {
+            return null;
+        }
+
+        var shader;
+        if (shaderScript.type == "fragment") {
+            shader = gl.createShader(gl.FRAGMENT_SHADER);
+        } else if (shaderScript.type == "vertex") {
+            shader = gl.createShader(gl.VERTEX_SHADER);
+        } else {
+            return null;
+        }
+
+        gl.shaderSource(shader, shaderScript.str);
+        gl.compileShader(shader);
+
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            alert(gl.getShaderInfoLog(shader));
+            return null;
+        }
+
+        return shader;
+    }
+
+    var shaderProgram;
+    var shaderNames = ['flatShader','gouraudShader','phongShader'];
+    var shaderPrograms = [];
+    var attrVars = ["aVertexPosition", "aTextureCoord", "aVertexNormal"];
+    var unifVars = ["uMVPMatrix", "uPMatrix", "uMMatrix", "uVMatrix", "uSampler", "uNormalMatrix", "pointLightPosition", "ambientColor"];
+
+    function initShaders() {
+        for (var i = 0;i < 3;i++) {
+            var fragmentShader = getShader(gl, "fragmentShader", shaderNames[i]);
+            var vertexShader = getShader(gl, "vertexShader", shaderNames[i]);
+
+            shaderProgram = gl.createProgram();
+            gl.attachShader(shaderProgram, vertexShader);
+            gl.attachShader(shaderProgram, fragmentShader);
+            gl.linkProgram(shaderProgram);
+
+            if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+                alert("Could not initialise shaders");
+            }
+
+            for(var j = 0;j < attrVars.length;j++) {
+                shaderProgram[attrVars[j]] = gl.getAttribLocation(shaderProgram, attrVars[j]);
+                gl.enableVertexAttribArray(shaderProgram[attrVars[j]]);
+            }
+
+            for(var j = 0;j < unifVars.length;j++) {
+                shaderProgram[unifVars[j]] = gl.getUniformLocation(shaderProgram, unifVars[j]);
+            }
+
+            shaderPrograms.push(shaderProgram);
+        }
+    }
+
+
+    function handleLoadedTexture(texture) {
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, texture.image);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.bindTexture(gl.TEXTURE_2D, null);
+    }
+
+    var galvanizedTexture;
+    var gunTexture;
+
+    function initTextures() {
+        galvanizedTexture = gl.createTexture();
+        galvanizedTexture.image = new Image();
+        galvanizedTexture.image.onload = function () {
+            handleLoadedTexture(galvanizedTexture);
+        }
+        galvanizedTexture.image.src = "galvanizedTexture.jpg";
+
+        gunTexture = gl.createTexture();
+        gunTexture.image = new Image();
+        gunTexture.image.onload = function () {
+            handleLoadedTexture(galvanizedTexture);
+        }
+        gunTexture.image.src = "Handgun/Handgun_Obj/textures/handgun_C.jpg";
+    }
+
+    function getViewMatrix(eye, target, up) {
+        var result = mat4.lookAt(eye, target, up, viewMatrix);
+        return result;
+    }
+
+    function getModelMatrix(size, center, translateVec, rotateAngle, rotateAxis) {
+        var modelMat = mat4.identity(modelMatrix);
+        mat4.translate(modelMat, translateVec);
+        mat4.rotate(modelMat, degToRad(rotateAngle), rotateAxis);
+        mat4.scale(modelMat, [size,size,size]);
+        
+        return mat4.translate(modelMat,[-center[0],-center[1],-center[2]]);
+    }
+
+    function getNormalMatrix(modelViewMat) {
+        mat4.toInverseMat3(modelViewMat, normalMatrix);
+        return mat3.transpose(normalMatrix);
+    }
+
+    function updateNormalMatrix() {
+        mvMatrix = mat4.multiply(viewMatrix,modelMatrix,mvMatrix);
+        normalMatrix = getNormalMatrix(mvMatrix);
+    }
+
+    var mvpMatrix = mat4.create();
+    var mvMatrix = mat4.create();
+    var normalMatrix = mat3.create();
+    var viewMatrix = mat4.create();
+    var modelMatrix = mat4.create();
+    var pMatrix = mat4.create();
+    var pointLightPos = [0.0,0.0,-10.0];
+    var ambientColorRGB = [0.1,0.1,0.1];
+
+    function setMatrixUniforms() {
+        gl.uniformMatrix4fv(shaderProgram["uMMatrix"], false, modelMatrix);
+        gl.uniformMatrix4fv(shaderProgram["uVMatrix"], false, viewMatrix);
+        gl.uniformMatrix4fv(shaderProgram["uPMatrix"], false, pMatrix);
+        gl.uniformMatrix3fv(shaderProgram["uNormalMatrix"], false, normalMatrix);
+        gl.uniform3fv(shaderProgram["pointLightPosition"], pointLightPos);
+        gl.uniform3fv(shaderProgram["ambientColor"], ambientColorRGB);
+    }
+
+    var normalTeapotMeshBuffers = {};
+    var flatTeapotMeshBuffers = {};
+    var flatTeapotData = {};
+    var meshBufferData = [];
+
+    var teapotAngle = 0;
+
+    function bindBufferData(meshBuffers) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, meshBuffers.vertexPositionBuffer);
+        gl.vertexAttribPointer(shaderProgram["aVertexPosition"], meshBuffers.vertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+        gl.bindBuffer(gl.ARRAY_BUFFER, meshBuffers.vertexTextureCoordBuffer);
+        gl.vertexAttribPointer(shaderProgram["aTextureCoord"], meshBuffers.vertexTextureCoordBuffer.itemSize, gl.FLOAT, false, 0, 0);
+        gl.bindBuffer(gl.ARRAY_BUFFER, meshBuffers.vertexNormalBuffer);
+        gl.vertexAttribPointer(shaderProgram["aVertexNormal"], meshBuffers.vertexNormalBuffer.itemSize, gl.FLOAT, false, 0, 0);        
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, meshBuffers.vertexIndexBuffer);
+        gl.drawElements(gl.TRIANGLES, meshBuffers.vertexIndexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
+
+    }
+
+    function drawScene() {
+        gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        if($.isEmptyObject(normalTeapotMeshBuffers) || $.isEmptyObject(flatTeapotMeshBuffers)) {
+            return;
+        }
+        mat4.perspective(45, gl.viewportWidth / gl.viewportHeight, 0.1, 1000.0, pMatrix);
+        viewMatrix = getViewMatrix([0.0,100.0,-50.0], [0.0,0.0,-100.0], [0.0,1.0,0.0]);
+        modelMatrix = getModelMatrix(1.0, [0.0,0.0,0.0], [0.0,0.0,-100.0], teapotAngle, [0.0,1.0,0.0]);
+        
+        updateNormalMatrix();
+
+        //for phong shading
+        shaderProgram = shaderPrograms[currentSelectedShaderIndex];
+        gl.useProgram(shaderProgram);
+        setMatrixUniforms();
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, galvanizedTexture);
+        gl.uniform1i(shaderProgram.samplerUniform, 0);
+        bindBufferData(meshBufferData[currentSelectedShaderIndex]);
+
+    }
+
+    //we need to duplicate vertex normal and color in order to do flat shading
+    function modifyModelForFlatShading(modelData) {
+        var timeBeenUsed = [];
+        var numIndices = modelData.indices.length;
+        var newVertexIndex = modelData.vertexPositions.length / 3;
+        var newNormals = [];
+        var newTexCor = [];
+
+        //update index(append),position(append),normal(replace and switch buffer),coordinates
+        for(var i = 0;i < numIndices;i += 3) {
+            var triangleNormal = [0.0,0.0,0.0];
+            var triangleTexCor = [0.0,0.0];
+            for(var j = i;j < (i + 3);j++) {
+                var vertexIndex = modelData.indices[j];
+                var vertexPosIndex = vertexIndex * 3;
+                var vertexTexCorIndex = vertexIndex * 2;
+                if(timeBeenUsed[vertexIndex]) {
+                    modelData.indices[j] = newVertexIndex;
+                    newVertexIndex += 1;
+                    modelData.vertexPositions.push(modelData.vertexPositions[vertexPosIndex]);
+                    modelData.vertexPositions.push(modelData.vertexPositions[vertexPosIndex+1]);
+                    modelData.vertexPositions.push(modelData.vertexPositions[vertexPosIndex+2]);
+                }
+
+                //we do normalize in fragment shader
+                triangleNormal[0] += modelData.vertexNormals[vertexPosIndex];
+                triangleNormal[1] += modelData.vertexNormals[vertexPosIndex+1];
+                triangleNormal[2] += modelData.vertexNormals[vertexPosIndex+2];
+
+                triangleTexCor[0] += modelData.vertexTextureCoords[vertexTexCorIndex];
+                triangleTexCor[1] += modelData.vertexTextureCoords[vertexTexCorIndex+1];
+
+                timeBeenUsed[vertexIndex] = 1;
+            }
+            
+            triangleNormal[0] /= 3.0;
+            triangleNormal[1] /= 3.0;
+            triangleNormal[2] /= 3.0;
+
+            triangleTexCor[0] /= 3.0;
+            triangleTexCor[1] /= 3.0;
+
+            for(var j = i;j < (i + 3);j++) {
+                var vertexIndex = modelData.indices[j];
+                var vertexPosIndex = vertexIndex * 3;
+                var vertexTexCorIndex = vertexIndex * 2;
+                newNormals[vertexPosIndex] = triangleNormal[0];
+                newNormals[vertexPosIndex+1] = triangleNormal[1];
+                newNormals[vertexPosIndex+2] = triangleNormal[2];
+
+                newTexCor[vertexTexCorIndex] = triangleTexCor[0];
+                newTexCor[vertexTexCorIndex+1] = triangleTexCor[1];
+            }
+
+        }
+
+        modelData.vertexNormals = newNormals;
+        modelData.vertexTextureCoords = newTexCor;
+    }
+
+    function initMeshBuffers(modelData, meshBuffers) {
+
+        meshBuffers.vertexNormalBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, meshBuffers.vertexNormalBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(modelData.vertexNormals), gl.STATIC_DRAW);
+        meshBuffers.vertexNormalBuffer.itemSize = 3;
+        meshBuffers.vertexNormalBuffer.numItems = modelData.vertexNormals.length / 3;
+
+        meshBuffers.vertexTextureCoordBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, meshBuffers.vertexTextureCoordBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(modelData.vertexTextureCoords), gl.STATIC_DRAW);
+        meshBuffers.vertexTextureCoordBuffer.itemSize = 2;
+        meshBuffers.vertexTextureCoordBuffer.numItems = modelData.vertexTextureCoords.length / 2;
+
+        meshBuffers.vertexPositionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, meshBuffers.vertexPositionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(modelData.vertexPositions), gl.STATIC_DRAW);
+        meshBuffers.vertexPositionBuffer.itemSize = 3;
+        meshBuffers.vertexPositionBuffer.numItems = modelData.vertexPositions.length / 3;
+
+        meshBuffers.vertexIndexBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, meshBuffers.vertexIndexBuffer);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(modelData.indices), gl.STATIC_DRAW);
+        meshBuffers.vertexIndexBuffer.itemSize = 1;
+        meshBuffers.vertexIndexBuffer.numItems = modelData.indices.length;
+
+    }
+
+    function handleLoadedTeapot(teapotData) {
+        if(doFlatShading) {
+            $.extend(true, flatTeapotData, teapotData);
+            modifyModelForFlatShading(flatTeapotData);
+            initMeshBuffers(flatTeapotData, flatTeapotMeshBuffers);
+            meshBufferData[0] = flatTeapotMeshBuffers;
+            console.log("done flat modification");
+        }
+
+        initMeshBuffers(teapotData, normalTeapotMeshBuffers);
+        meshBufferData[1] = normalTeapotMeshBuffers;
+        meshBufferData[2] = normalTeapotMeshBuffers;
+    }
+
+    function loadTeapot() {
+        var request = new XMLHttpRequest();
+        request.open("GET", "Teapot.json");
+        request.onreadystatechange = function () {
+            if (request.readyState == 4) {
+                handleLoadedTeapot(JSON.parse(request.responseText));
+            }
+        }
+        request.send();
+    }
+
+    function handleLoadedObjModel(data) {
+        var mesh = new OBJ.Mesh(data);
+        return OBJ.initMeshBuffers(gl, mesh);
+    }
+
+    function loadObjModel(objFilePath) {
+        var request = new XMLHttpRequest();
+        request.open("GET", objFilePath);
+        request.onreadystatechange = function () {
+            if (request.readyState == 4) {
+                handleLoadedObjModel(request.responseText);
+            }
+        }
+        request.send();
+    }
+
+    function degToRad(degrees) {
+        return degrees * Math.PI / 180;
+    }
+
+    var lastTime = 0;
+    function animate() {
+        var timeNow = new Date().getTime();
+        if (lastTime != 0) {
+            var elapsed = timeNow - lastTime;
+            teapotAngle += 0.03 * elapsed;
+        }
+        lastTime = timeNow;
+    }
+
+
+    function tick() {
+        requestAnimFrame(tick);
+        drawScene();
+        animate();
+    }
+
+    // var gunMeshBuffs;
+    var shaderSelector;
+    var currentSelectedShaderIndex;
+    function webGLStart() {
+        var canvas = document.getElementById("ICG-canvas");
+        shaderSelector = $("#shaderSelector").change(function(event) {
+          currentSelectedShaderIndex = Number(event.target.value);
+        });
+        currentSelectedShaderIndex = Number(shaderSelector.val());
+        initGL(canvas);
+        initShaders();
+        initTextures();
+        loadTeapot();
+        // gunMeshBuffs = loadObjModel("Handgun/Handgun_Obj/Handgun_obj.obj");
+
+        gl.clearColor(0.0, 0.2, 0.2, 1.0);
+        gl.enable(gl.DEPTH_TEST);
+
+        tick();
+    }
+
+</script>
+</head>
+
+<body onload="webGLStart();">
+  
+    <canvas id="ICG-canvas" style="border: none;" width="800" height="600"></canvas>
+    <br/>
+    <select id="shaderSelector">
+        <option value="0">flat</option>
+        <option value="1">gouraud</option>
+        <option value="2">phong</option>
+    </select> 
+</body>
+
+</html>
