@@ -19,7 +19,7 @@
     void main(void) {
         N = aVertexNormal;
         vPosition = aVertexPosition;
-        gl_Position = uPMatrix * uVMatrix * uMMatrix * vec4(aVertexPosition, 1.0);
+        gl_Position = uPMatrix * uVMatrix * uMMatrix  * vec4(aVertexPosition, 1.0);
         vec4 fragmentColor;
         fragmentColor = texture2D(uSampler, vec2(aTextureCoord.s, aTextureCoord.t));
         vColor = vec4(fragmentColor.rgb, fragmentColor.a);

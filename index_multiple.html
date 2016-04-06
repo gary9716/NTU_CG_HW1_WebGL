@@ -140,31 +140,36 @@
     }
 
     function getViewMatrix(eye, target, up) {
-        return mat4.lookAt(eye, target, up);
+        var result = mat4.lookAt(eye, target, up, viewMatrix);
+        return result;
     }
 
     function getModelMatrix(size, center, translateVec, rotateAngle, rotateAxis) {
-        var modelMat = mat4.identity(mat4.create());
+        var modelMat = mat4.identity(modelMatrix);
         mat4.translate(modelMat, translateVec);
-        mat4.scale(modelMat, [size,size,size]);
         mat4.rotate(modelMat, degToRad(rotateAngle), rotateAxis);
+        mat4.scale(modelMat, [size,size,size]);
         
         return mat4.translate(modelMat,[-center[0],-center[1],-center[2]]);
     }
 
     function getNormalMatrix(modelViewMat) {
-        var normalMat = mat3.create();
-        mat4.toInverseMat3(modelViewMat, normalMat);
-        return mat3.transpose(normalMat);
+        mat4.toInverseMat3(modelViewMat, normalMatrix);
+        return mat3.transpose(normalMatrix);
+    }
+
+    function updateNormalMatrix() {
+        mvMatrix = mat4.multiply(viewMatrix,modelMatrix,mvMatrix);
+        normalMatrix = getNormalMatrix(mvMatrix);
     }
 
     var mvpMatrix = mat4.create();
     var mvMatrix = mat4.create();
-    var normalMatrix;
-    var viewMatrix;
-    var modelMatrix;
+    var normalMatrix = mat3.create();
+    var viewMatrix = mat4.create();
+    var modelMatrix = mat4.create();
     var pMatrix = mat4.create();
-    var pointLightPos = [0.0,30.0,0.0];
+    var pointLightPos = [0.0,0.0,-100.0];
     var ambientColorRGB = [0.1,0.1,0.1];
 
     function setMatrixUniforms() {
@@ -201,13 +206,35 @@
             return;
         }
         mat4.perspective(45, gl.viewportWidth / gl.viewportHeight, 0.1, 1000.0, pMatrix);
-        viewMatrix = getViewMatrix([0.0,50.0,-100.0], [0.0,0.0,0.0], [0.0,1.0,0.0]);
+        viewMatrix = getViewMatrix([0.0,100.0,-50.0], [0.0,0.0,-100.0], [0.0,1.0,0.0]);
+        modelMatrix = getModelMatrix(1.0, [0.0,0.0,0.0], [0.0,0.0,-140.0], teapotAngle, [0.0,1.0,0.0]);
         
-        modelMatrix = getModelMatrix(1.0, [0.0,0.0,0.0], [0.0,0.0,0.0], teapotAngle, [0.0,1.0,0.0]);
-        
-        mvMatrix = mat4.multiply(viewMatrix,modelMatrix);
-        normalMatrix = getNormalMatrix(mvMatrix);
-        
+        updateNormalMatrix();
+
+        //for phong shading
+        shaderProgram = shaderPrograms[2];
+        gl.useProgram(shaderProgram);
+        setMatrixUniforms();
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, galvanizedTexture);
+        gl.uniform1i(shaderProgram.samplerUniform, 0);
+        bindBufferData(normalTeapotMeshBuffers);
+
+        modelMatrix = getModelMatrix(1.0, [0.0,0.0,0.0], [30.0,0.0,-80.0], teapotAngle, [0.0,1.0,0.0]);
+        updateNormalMatrix();
+
+        //for flat shading
+        shaderProgram = shaderPrograms[0];
+        gl.useProgram(shaderProgram);
+        setMatrixUniforms();
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, galvanizedTexture);
+        gl.uniform1i(shaderProgram.samplerUniform, 0);
+        bindBufferData(flatTeapotMeshBuffers);
+
+        modelMatrix = getModelMatrix(1.0, [0.0,0.0,0.0], [-30.0,0.0,-80.0], teapotAngle, [0.0,1.0,0.0]);
+        updateNormalMatrix();
+
         //for flat shading
         shaderProgram = shaderPrograms[1];
         gl.useProgram(shaderProgram);
@@ -216,20 +243,6 @@
         gl.bindTexture(gl.TEXTURE_2D, galvanizedTexture);
         gl.uniform1i(shaderProgram.samplerUniform, 0);
         bindBufferData(normalTeapotMeshBuffers);
-
-        // modelMatrix = getModelMatrix(1.0, [0.0,0.0,0.0], [20.0,0.0,0.0], teapotAngle, [0.0,1.0,0.0]);
-
-        // mvMatrix = mat4.multiply(viewMatrix,modelMatrix);
-        // normalMatrix = getNormalMatrix(mvMatrix);
-        
-        // //for flat shading
-        // shaderProgram = shaderPrograms[1];
-        // gl.useProgram(shaderProgram);
-        // setMatrixUniforms();
-        // gl.activeTexture(gl.TEXTURE0);
-        // gl.bindTexture(gl.TEXTURE_2D, galvanizedTexture);
-        // gl.uniform1i(shaderProgram.samplerUniform, 0);
-        // bindBufferData(normalTeapotMeshBuffers);
     }
 
     //we need to duplicate vertex normal and color in order to do flat shading
