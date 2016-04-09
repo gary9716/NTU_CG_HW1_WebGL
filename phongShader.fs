@@ -29,7 +29,7 @@
         vec3 DiffuseMaterialColour = vColor.rgb;        
         float diffuseLambert = max(dot(l,n),0.0);
 
-        float shininess = 128.0;
+        float shininess = 50.0;
         vec3 R = reflect(l, n);
         float specular = pow( max(0.0,dot(R,v)), shininess);
         float SpecularIntensity = 0.5;
