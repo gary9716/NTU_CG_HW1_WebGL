@@ -183,6 +183,7 @@
 
     var normalTeapotMeshBuffers = {};
     var flatTeapotMeshBuffers = {};
+    var gunMeshBuffs = {};
     var flatTeapotData = {};
 
     var teapotAngle = 0;
@@ -205,6 +206,7 @@
         if($.isEmptyObject(normalTeapotMeshBuffers) || $.isEmptyObject(flatTeapotMeshBuffers)) {
             return;
         }
+
         mat4.perspective(45, gl.viewportWidth / gl.viewportHeight, 0.1, 1000.0, pMatrix);
         viewMatrix = getViewMatrix([0.0,100.0,-50.0], [0.0,0.0,-100.0], [0.0,1.0,0.0]);
         modelMatrix = getModelMatrix(1.0, [0.0,0.0,0.0], [0.0,0.0,-140.0], teapotAngle, [0.0,1.0,0.0]);
@@ -235,7 +237,7 @@
         modelMatrix = getModelMatrix(1.0, [0.0,0.0,0.0], [-30.0,0.0,-80.0], teapotAngle, [0.0,1.0,0.0]);
         updateNormalMatrix();
 
-        //for flat shading
+        //for gouraud shading
         shaderProgram = shaderPrograms[1];
         gl.useProgram(shaderProgram);
         setMatrixUniforms();
@@ -243,6 +245,18 @@
         gl.bindTexture(gl.TEXTURE_2D, galvanizedTexture);
         gl.uniform1i(shaderProgram.samplerUniform, 0);
         bindBufferData(normalTeapotMeshBuffers);
+
+        // modelMatrix = getModelMatrix(10.0, [0.0,0.0,0.0], [0.0,0.0,-80.0], teapotAngle, [0.0,1.0,0.0]);
+        // updateNormalMatrix();
+
+        // shaderProgram = shaderPrograms[2];
+        // gl.useProgram(shaderProgram);
+        // setMatrixUniforms();
+        // gl.activeTexture(gl.TEXTURE0);
+        // gl.bindTexture(gl.TEXTURE_2D, gunTexture);
+        // gl.uniform1i(shaderProgram.samplerUniform, 0);
+        // bindBufferData(gunMeshBuffs);
+
     }
 
     //we need to duplicate vertex normal and color in order to do flat shading
@@ -357,7 +371,8 @@
 
     function handleLoadedObjModel(data) {
         var mesh = new OBJ.Mesh(data);
-        return OBJ.initMeshBuffers(gl, mesh);
+        OBJ.initMeshBuffers(gl, mesh);
+        return mesh;
     }
 
     function loadObjModel(objFilePath) {
@@ -365,7 +380,7 @@
         request.open("GET", objFilePath);
         request.onreadystatechange = function () {
             if (request.readyState == 4) {
-                handleLoadedObjModel(request.responseText);
+                gunMeshBuffs = handleLoadedObjModel(request.responseText);
             }
         }
         request.send();
@@ -392,7 +407,7 @@
         animate();
     }
 
-    // var gunMeshBuffs;
+    
 
     function webGLStart() {
         var canvas = document.getElementById("ICG-canvas");
@@ -400,7 +415,7 @@
         initShaders();
         initTextures();
         loadTeapot();
-        // gunMeshBuffs = loadObjModel("Handgun/Handgun_Obj/Handgun_obj.obj");
+        loadObjModel("Handgun/Handgun_Obj/Handgun_obj.obj");
 
         gl.clearColor(0.0, 0.2, 0.2, 1.0);
         gl.enable(gl.DEPTH_TEST);

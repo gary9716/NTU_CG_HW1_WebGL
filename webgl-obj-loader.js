@@ -371,17 +371,17 @@
    *     gl.drawElements(gl.TRIANGLES, model.mesh.indexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
    */
   OBJ.initMeshBuffers = function( gl, mesh ){
-    mesh.normalBuffer = _buildBuffer(gl, gl.ARRAY_BUFFER, mesh.vertexNormals, 3);
-    mesh.textureBuffer = _buildBuffer(gl, gl.ARRAY_BUFFER, mesh.textures, 2);
-    mesh.vertexBuffer = _buildBuffer(gl, gl.ARRAY_BUFFER, mesh.vertices, 3);
-    mesh.indexBuffer = _buildBuffer(gl, gl.ELEMENT_ARRAY_BUFFER, mesh.indices, 1);
+    mesh.vertexNormalBuffer = _buildBuffer(gl, gl.ARRAY_BUFFER, mesh.vertexNormals, 3);
+    mesh.vertexTextureCoordBuffer = _buildBuffer(gl, gl.ARRAY_BUFFER, mesh.textures, 2);
+    mesh.vertexPositionBuffer = _buildBuffer(gl, gl.ARRAY_BUFFER, mesh.vertices, 3);
+    mesh.vertexIndexBuffer = _buildBuffer(gl, gl.ELEMENT_ARRAY_BUFFER, mesh.indices, 1);
   }
 
   OBJ.deleteMeshBuffers = function( gl, mesh ){
-    gl.deleteBuffer(mesh.normalBuffer);
-    gl.deleteBuffer(mesh.textureBuffer);
-    gl.deleteBuffer(mesh.vertexBuffer);
-    gl.deleteBuffer(mesh.indexBuffer);
+    gl.deleteBuffer(mesh.vertexNormalBuffer);
+    gl.deleteBuffer(mesh.vertexTextureCoordBuffer);
+    gl.deleteBuffer(mesh.vertexPositionBuffer);
+    gl.deleteBuffer(mesh.vertexIndexBuffer);
   }
 })(this);
 
